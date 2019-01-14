@@ -2,6 +2,7 @@
 # Script to list AHV based VM information
 # Author: Magnus Andersson, Sr Staff Solution Architect @Nutanix.
 # Date: 2019-01-10
+# Version 2.3
 #
 # Information:
 # - You can run the script against either Prism Element (traditional Nutanix Cluster) or both Prism Element and Prism Central.
