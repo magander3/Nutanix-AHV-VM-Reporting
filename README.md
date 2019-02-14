@@ -2,6 +2,7 @@
 this script will report on the following Virtual Machine configuration and documentation elements for a Nutanix AHV based environment:
 - VM Name
 - VM Description
+- VM Categories
 - VM Create Date
 - Total Number of vCPUs
 - Number of CPUs
@@ -22,3 +23,4 @@ this script will report on the following Virtual Machine configuration and docum
 - AHV Host placement
 - Self Service Portal Project
 - Self Service Portal VM Owner
+- VM uuid
