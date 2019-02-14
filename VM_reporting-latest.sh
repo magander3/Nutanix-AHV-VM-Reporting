@@ -1,13 +1,13 @@
 #!/bin/bash
 # Script to list AHV based VM information
 # Author: Magnus Andersson, Sr Staff Solution Architect @Nutanix.
-# Date: 2019-01-10
-# Version 2.3
+# Date: 2019-02-14
 #
 # Information:
 # - You can run the script against either Prism Element (traditional Nutanix Cluster) or both Prism Element and Prism Central.
 # - VM Create Date, Self Service Portal and vNUMA information is available only if you include Prism Central.
 #
+# Version 2.4 - Added VM Categories information and VM UUID. Categories are reported in the format of Name-Value e.g. DMZ-Customer01. Requires Prism Central. Fixed VM Memory reporting which could get corrupted in certain situation.
 # Version 2.3 - Script adjusted to display a cleaner output during runtime, correctly manage VM Annotation/descriptions field including comma.
 # Version 2.2 - Added VM Description Field and vNUMA information. Adjusted scirpt to recent API changes for disk reporting.
 # Version 2.1 - Added VM Create date and changed VG storage allocation to match changes in the API.
@@ -25,7 +25,7 @@
 directory="/Users/magander/Documents/script/REST"
 #
 # Specify Nutanix Cluster FQDN, User and Password
-clusterfqdn="10.168.10.135"
+clusterfqdn="10.10.100.130"
 user="admin"
 passwd="secret"
 #
@@ -33,9 +33,9 @@ passwd="secret"
 #
 # Is Prism central in use. Available options are Y and N
 pcinuse="y"
-pcfqdn="10.168.10.136"
+pcfqdn="10.10.100.140"
 pcuser="admin"
-pcpasswd="secretagain"
+pcpasswd="secret"
 #
 # Uncomment the below line to enable verbose debuggning mode - you'll see a ton of stuff on the screen.
 # set -xv
@@ -87,11 +87,11 @@ if [ $pcinuse == "Y" ] || [ $pcinuse == "y" ]
     then
         echo Both Nutanix Prism Central $pcfqdn and Nutanix Prism Element $clusterfqdn will be used to collect information.
         echo ""
-        echo "VM Name,VM Desription,VM Create Date,Total Number of vCPUs,Number of CPUs,Number of Cores per vCPU,Memory GB,vNUMA,Disk Usage GB, Disk Allocated GB,Number of VGs, VG Names,VG Disk Allocated GB,Flash Mode Enabled,AHV Snapshots,Local Protection Domain Snapshots,Remote Protection Domain Snapshots,IP Address/IP Addresses,Network Placement,AHV Host placement,Self Service Portal Project, Self Service Portal VM Owner " > $file
+        echo "VM Name,VM Desription,VM Categories,VM Create Date,Total Number of vCPUs,Number of CPUs,Number of Cores per vCPU,Memory GB,vNUMA,Disk Usage GB, Disk Allocated GB,Number of VGs, VG Names,VG Disk Allocated GB,Flash Mode Enabled,AHV Snapshots,Local Protection Domain Snapshots,Remote Protection Domain Snapshots,IP Address/IP Addresses,Network Placement,AHV Host placement,Self Service Portal Project, Self Service Portal VM Owner, VM UUID " > $file
             else
         echo Nutanix Prism Element $clusterfqdn will be used to collect information.
         echo ""
-        echo "VM Name,VM Description,Total Number of vCPUs,Number of CPUs,Number of Cores per vCPU,Memory GB,Disk Usage GB, Disk Allocated GB,Number of VGs, VG Names,VG Disk Allocated GB,Flash Mode Enabled,AHV Snapshots,Local Protection Domain Snapshots,Remote Protection Domain Snapshots,IP Address/IP Addresses,Network Placement,AHV Host placement " > $file
+        echo "VM Name,VM Description,Total Number of vCPUs,Number of CPUs,Number of Cores per vCPU,Memory GB,Disk Usage GB, Disk Allocated GB,Number of VGs, VG Names,VG Disk Allocated GB,Flash Mode Enabled,AHV Snapshots,Local Protection Domain Snapshots,Remote Protection Domain Snapshots,IP Address/IP Addresses,Network Placement,AHV Host placement, VM UUID " > $file
 fi
 #
 # Get VM uuids
@@ -100,11 +100,14 @@ vmuuids=`echo $getvms | python -m json.tool | grep -w uuid | awk -F":" '{print $
 # Create the report
 for i in $vmuuids ;
     do
-        #echo $i
+        # Get VM UUID
+        vmid=$i
+        #
         # Define VM REST API v2 url
         urlgetvm="https://"$clusterfqdn":9440/PrismGateway/services/rest/v2.0/vms/$i?include_vm_disk_config=true&include_vm_nic_config=true"
         # Get REST v2 VM info
         vminfo=`curl -s -k -u $user:$passwd -X GET --header 'Accept: application/json' $urlgetvm`
+        #
         # Get VM name
         vmname=`echo $vminfo | python -m json.tool |grep -i name | awk -F"\"" '{print $4}'`
         echo "Creating reporting input for VM $vmname now ....."
@@ -119,7 +122,8 @@ for i in $vmuuids ;
                             else
                             echo $vmdesc2
                         fi`
-        # Vm create date and SSP section
+        # VM create date and SSP section
+        #echo "$vmdescription"
     if [ $pcinuse == "Y" ] || [ $pcinuse == "y" ]
             then
                 # Define VM REST API v3 url
@@ -154,6 +158,13 @@ for i in $vmuuids ;
                             else
                         echo $sspownerinfo
                     fi`
+               # Get VM categories
+               category=`echo $pcvminfo | python -m json.tool | sed -n -e '/categories/,/},/ p' | awk -F"categories" '{print $1}' | sed  's/\"/\ /g' | sed  's/\}/\ /g'| sed  's/\,/\ /g' | sed  's/\:/-/g' | sed -e 's/ //g' | sed '/^[[:space:]]*$/d'`
+               categories=`if [[ $category == *"creation"* ]]; then
+                        echo "N/A"
+                      else
+                        echo $category
+                      fi`
         fi
     # Get VM Power State
         vmpowerstate=`echo $vminfo | python -m json.tool |grep -i power_state | awk -F"\"" '{print $4}'`
@@ -162,10 +173,9 @@ for i in $vmuuids ;
         num_cores_per_vcpu=`echo $vminfo | python -m json.tool | grep -i num_cores_per_vcpu | awk -F" " '{print $2}' | awk -F"," '{print $1}'`
         vCPUs=`echo $(($num_vcpus*$num_cores_per_vcpu))`
         # Get Memory configuration
-        memory=`echo $vminfo | python -m json.tool |grep -i memory_mb | awk -F" " '{print $2}' | awk -F"," '{print $1/1024}'`
+        memory=`echo $vminfo | python -m json.tool |grep -i memory_mb | awk -F" " '{print $2}' | awk -F"," '{print $1/1024}' | sed  's/\,.*//'`
         # Get IP Information
         ipaddress=`echo $vminfo | python -m json.tool | grep -iw ip_address | awk -F "\"" '{print $4}'`
-        # echo $ipaddress
         ipinfo=`if [ -z "$ipaddress" ] ; then
                     echo "No IP Address Information Available"
                     else
@@ -259,9 +269,9 @@ for i in $vmuuids ;
 # Put the information into the report
 if [ $pcinuse == "Y" ] || [ $pcinuse == "y" ]
     then
-        echo $vmname,$vmdescription,$vmcreatedate,$vCPUs,$num_vcpus,$num_cores_per_vcpu,$memory,$vnumainfo,$vdiskutilizationtotal,$formatvdisksallocation,$vgbasenumber,$vgbasenames,$vgtotallocation,$flashmode,$ahvsnaps,$pdlocalsnaps,$pdremotesnaps,$ipinfo,$networkname,$ahvhostplacement,$sspproject,$sspowner >> $file
+        echo $vmname,$vmdescription,$categories,$vmcreatedate,$vCPUs,$num_vcpus,$num_cores_per_vcpu,$memory,$vnumainfo,$vdiskutilizationtotal,$formatvdisksallocation,$vgbasenumber,$vgbasenames,$vgtotallocation,$flashmode,$ahvsnaps,$pdlocalsnaps,$pdremotesnaps,$ipinfo,$networkname,$ahvhostplacement,$sspproject,$sspowner,$vmid >> $file
     else
-        echo $vmname,$vmdescription,$vCPUs,$num_vcpus,$num_cores_per_vcpu,$memory,$vdiskutilizationtotal,$formatvdisksallocation,$vgbasenumber,$vgbasenames,$vgtotallocation,$flashmode,$ahvsnaps,$pdlocalsnaps,$pdremotesnaps,$ipinfo,$networkname,$ahvhostplacement >> $file
+        echo $vmname,$vmdescription,$vCPUs,$num_vcpus,$num_cores_per_vcpu,$memory,$vdiskutilizationtotal,$formatvdisksallocation,$vgbasenumber,$vgbasenames,$vgtotallocation,$flashmode,$ahvsnaps,$pdlocalsnaps,$pdremotesnaps,$ipinfo,$networkname,$ahvhostplacement,$vmid >> $file
 fi
 #
 # Closing out the entire script
